@@ -1,0 +1,25 @@
+/// <reference types="vitest/config" />
+import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    proxy: {
+      // Forward API calls to the FastAPI backend during development
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/setupTests.ts'],
+    // The first test can be slow on a cold start (OneDrive folder), so allow extra time.
+    testTimeout: 20000,
+  },
+})

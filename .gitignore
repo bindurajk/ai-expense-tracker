@@ -1,0 +1,4 @@
+# Excel lock files
+~$*
+# Local Claude app settings
+.claude/settings.local.json

@@ -1,0 +1,381 @@
+/* SpendWise base styles — mobile first. Breakpoint: 768px switches to desktop navigation. */
+
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1f23;
+  --muted: #5b6470;
+  --border: #d9dcdf;
+  --primary: #1d5c4b;
+  --primary-text: #ffffff;
+  --focus: #1a5fd0;
+  --warning-bg: #fff4d6;
+  --warning-border: #b8860b;
+  --error-bg: #fde8e8;
+  --error-border: #b42318;
+  --note-bg: #eef3fb;
+  --radius: 10px;
+  --tap: 44px;
+  --bottom-nav-height: 64px;
+
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141618;
+    --surface: #1d2023;
+    --text: #eceef0;
+    --muted: #a5adb6;
+    --border: #3a3f45;
+    --primary: #5cc4a6;
+    --primary-text: #0d1f1a;
+    --focus: #8ab4ff;
+    --warning-bg: #3b3011;
+    --warning-border: #e0b341;
+    --error-bg: #3d1a1a;
+    --error-border: #f97066;
+    --note-bg: #1c2636;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  overflow-x: hidden;
+}
+
+h1 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+  margin: 0 0 1rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 1.75rem 0 0.5rem;
+}
+
+a {
+  color: var(--primary);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+code {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+}
+
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  z-index: 100;
+  background: var(--surface);
+  padding: 0.5rem 1rem;
+}
+
+/* Buttons and button-styled links: at least 44px tall for touch. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 1rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-primary {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.button-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.button-ghost {
+  background: transparent;
+  color: var(--text);
+}
+
+/* Public pages */
+.public-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-header,
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text);
+  text-decoration: none;
+  margin-right: auto;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.site-nav a:not(.button) {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+}
+
+.public-main,
+.app-main {
+  flex: 1;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 16px;
+}
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem 16px;
+  border-top: 1px solid var(--border);
+}
+
+.page.narrow {
+  max-width: 480px;
+}
+
+.prose {
+  max-width: 68ch;
+}
+
+.hero .lead {
+  font-size: 1.15rem;
+}
+
+.facts {
+  padding-left: 1.25rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+.definitions dt {
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+
+.definitions dd {
+  margin: 0.25rem 0 0;
+}
+
+.placeholder-note {
+  display: inline-block;
+  background: var(--note-bg);
+  border-left: 4px solid var(--focus);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+}
+
+.notice {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid;
+}
+
+.notice ul {
+  margin: 0.25rem 0 0;
+}
+
+.notice-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+
+.notice-error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+.dev-box {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.empty-state {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+
+.link-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.link-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.link-list a {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 1rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+/* Signed-in shell */
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--bottom-nav-height);
+}
+
+.demo-banner {
+  margin: 0;
+  padding: 0.5rem 16px;
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--warning-border);
+  font-size: 0.9rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+.nav-list a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 0.75rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--radius);
+}
+
+.nav-list a.active {
+  color: var(--primary);
+  background: var(--note-bg);
+}
+
+.top-nav,
+.desktop-only {
+  display: none;
+}
+
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--bottom-nav-height);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 10;
+}
+
+.bottom-nav .nav-list {
+  height: 100%;
+}
+
+.bottom-nav .nav-list li {
+  flex: 1;
+}
+
+.bottom-nav .nav-list a {
+  height: 100%;
+  padding: 0 0.25rem;
+  font-size: 0.85rem;
+  border-radius: 0;
+}
+
+@media (min-width: 768px) {
+  h1 {
+    font-size: 2rem;
+  }
+
+  .app-shell {
+    padding-bottom: 0;
+  }
+
+  .top-nav,
+  .desktop-only {
+    display: flex;
+  }
+
+  .bottom-nav {
+    display: none;
+  }
+
+  .public-main,
+  .app-main {
+    padding: 2rem 24px;
+  }
+}
