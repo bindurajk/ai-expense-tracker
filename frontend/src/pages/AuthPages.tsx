@@ -3,7 +3,8 @@ import { useAuth } from '../auth/AuthContext'
 import { safeNextPath } from '../auth/nextPath'
 import { usePageTitle } from '../usePageTitle'
 
-// Placeholders for the sign-in pages. The real forms use Supabase Auth and arrive in A01–A03.
+// Placeholders for sign-in (A02) and password reset (A03).
+// Sign-up and email verification (A01) live in Signup.tsx and Verify.tsx.
 
 export function Login() {
   usePageTitle('Sign in')
@@ -39,29 +40,6 @@ export function Login() {
       <p>
         New here? <Link to="/signup">Create an account</Link>
       </p>
-    </section>
-  )
-}
-
-export function Signup() {
-  usePageTitle('Sign up')
-  return (
-    <section className="page narrow">
-      <h1>Create your account</h1>
-      <p className="placeholder-note">The sign-up form will be built in feature A01.</p>
-      <p>
-        Already have an account? <Link to="/login">Sign in</Link>
-      </p>
-    </section>
-  )
-}
-
-export function Verify() {
-  usePageTitle('Verify your email')
-  return (
-    <section className="page narrow">
-      <h1>Check your email</h1>
-      <p className="placeholder-note">Email verification will be built in feature A01.</p>
     </section>
   )
 }

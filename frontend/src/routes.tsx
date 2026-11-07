@@ -14,11 +14,13 @@ import {
   Settings,
   Transactions,
 } from './pages/AppPages'
-import { Login, ResetPassword, Signup, Verify } from './pages/AuthPages'
+import { Login, ResetPassword } from './pages/AuthPages'
 import { Help } from './pages/Help'
 import { Landing } from './pages/Landing'
 import { NotFound } from './pages/NotFound'
 import { Privacy } from './pages/Privacy'
+import { Signup } from './pages/Signup'
+import { Verify } from './pages/Verify'
 
 // All MVP routes from PRD section 5. P2 pages (goals, recurring, notifications, reports)
 // are intentionally absent until those modules pass their gate.

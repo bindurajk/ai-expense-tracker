@@ -15,7 +15,8 @@ function renderAt(path: string, opts: { config?: AppConfig; demoAllowed?: boolea
   const queryClient = new QueryClient()
   render(
     <QueryClientProvider client={queryClient}>
-      <AuthProvider config={opts.config ?? okConfig} demoAllowed={opts.demoAllowed ?? true}>
+      {/* client={null}: no Supabase in these tests, so the session check finishes straight away. */}
+      <AuthProvider config={opts.config ?? okConfig} demoAllowed={opts.demoAllowed ?? true} client={null}>
         <MemoryRouter initialEntries={[path]}>
           <AppRoutes />
         </MemoryRouter>
