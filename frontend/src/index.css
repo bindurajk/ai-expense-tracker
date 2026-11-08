@@ -14,6 +14,9 @@
   --error-bg: #fde8e8;
   --error-border: #b42318;
   --note-bg: #eef3fb;
+  --success-bg: #e6f4ee;
+  --success-border: #1d7a55;
+  --income: #1d7a55;
   --radius: 10px;
   --tap: 44px;
   --bottom-nav-height: 64px;
@@ -41,6 +44,9 @@
     --error-bg: #3d1a1a;
     --error-border: #f97066;
     --note-bg: #1c2636;
+    --success-bg: #14301f;
+    --success-border: #5cc4a6;
+    --income: #5cc4a6;
   }
 }
 
@@ -168,7 +174,8 @@ code {
   margin-bottom: 0.25rem;
 }
 
-.field input {
+.field input,
+.field select {
   display: block;
   width: 100%;
   min-height: var(--tap);
@@ -181,14 +188,134 @@ code {
   border-radius: var(--radius);
 }
 
-.field input:focus-visible {
+.field input:focus-visible,
+.field select:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 1px;
   border-color: var(--focus);
 }
 
-.field input[aria-invalid='true'] {
+.field input[aria-invalid='true'],
+.field select[aria-invalid='true'] {
   border: 2px solid var(--error-border);
+}
+
+/* Expense / Income switch: two large radio buttons that look like one control. */
+.form fieldset.segmented {
+  margin: 0 0 1rem;
+}
+
+.segmented legend {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  padding: 0;
+}
+
+.segmented-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.segmented-option {
+  position: relative;
+}
+
+.segmented-option input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.segmented-option span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  font-weight: 600;
+  background: var(--surface);
+}
+
+.segmented-option + .segmented-option span {
+  border-left: 1px solid var(--muted);
+}
+
+.segmented-option input:checked + span {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.segmented-option input:focus-visible + span {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.notice-success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  margin: 1rem 0 0;
+}
+
+.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* A short list of entries: category and date on the left, amount on the right. */
+.entry-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.entry-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+}
+
+.entry-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.entry-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.entry-category {
+  font-weight: 600;
+}
+
+.entry-meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.entry-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.entry-amount.income {
+  color: var(--income);
 }
 
 .field-hint {

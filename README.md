@@ -25,11 +25,14 @@ If PowerShell blocks `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser
 
 ## Settings
 
-- Copy `frontend/.env.example` to `frontend/.env.local`.
-- Copy `backend/.env.example` to `backend/.env`.
+Only the backend needs settings: copy `backend/.env.example` to `backend/.env` and follow
+[docs/supabase-setup.md](docs/supabase-setup.md) (Supabase is used as the database only).
+Then create the tables: `cd backend; .\.venv\Scripts\alembic.exe upgrade head`.
+Never commit `.env`; it is git-ignored. If the backend isn't running or configured, private pages show
+"The app is not set up yet".
 
-Fill in the values when you reach the sign-up feature (A01). Never commit `.env` or `.env.local`; they are git-ignored.
-Until the settings are filled in, private pages show a "The app is not set up yet" message. That is expected.
+**Accounts:** SpendWise has its own email + password sign-in. Passwords are stored only as Argon2 hashes, the
+session is an HttpOnly cookie, and there are no verification emails.
 
 ## Running the app
 
@@ -45,7 +48,7 @@ uvicorn app.main:app --reload --port 8000
 ```powershell
 # Terminal 2 — frontend on http://localhost:5173
 cd frontend
-npm run dev
+npm.cmd run dev   # "npm.cmd" avoids PowerShell's script-blocking setting
 ```
 
 Open http://localhost:5173. In development, the Sign in page has a **Preview the app layout** button that opens an

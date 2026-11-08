@@ -24,9 +24,6 @@ export const Dashboard = () => (
 export const Transactions = () => (
   <PagePlaceholder title="Transactions" featureId="T04" text="Your recorded entries will be listed here." />
 )
-export const NewTransaction = () => (
-  <PagePlaceholder title="Add entry" featureId="T01" text="Record an expense, income or refund." />
-)
 export const EditTransaction = () => (
   <PagePlaceholder title="Edit entry" featureId="T05" text="Correct a recorded entry." />
 )

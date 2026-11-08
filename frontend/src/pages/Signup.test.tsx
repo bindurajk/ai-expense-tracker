@@ -1,9 +1,10 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { RATE_LIMIT_MESSAGE } from '../auth/authErrors'
-import { createFakeAuth, renderApp } from '../test/fakeAuth'
+import { ACCOUNT_EXISTS_MESSAGE, NETWORK_MESSAGE, RATE_LIMIT_MESSAGE } from '../auth/authErrors'
+import { errorResponse, mockApi, renderApp, sentBody, TEST_USER, userResponse } from '../test/fakeAuth'
 
-const EMAIL = 'sam@example.com'
+const EMAIL = TEST_USER.email
+const SIGNUP = 'POST /api/auth/signup'
 
 async function fillForm(
   user: ReturnType<typeof userEvent.setup>,
@@ -17,10 +18,10 @@ async function fillForm(
 const submitButton = () => screen.getByRole('button', { name: /create account|creating your account/i })
 
 describe('sign-up page', () => {
-  it('shows field errors, focuses the first one and does not call Supabase', async () => {
+  it('shows field errors, focuses the first one and sends nothing', async () => {
     const user = userEvent.setup()
-    const auth = createFakeAuth()
-    renderApp('/signup', { client: auth.client })
+    const api = mockApi()
+    renderApp('/signup')
 
     await fillForm(user, { email: 'not-an-email', password: 'short', confirm: 'different' })
     await user.click(submitButton())
@@ -35,118 +36,112 @@ describe('sign-up page', () => {
       'At least 8 characters. Your password must be at least 8 characters',
     )
     expect(email).toHaveFocus()
-    expect(auth.fake.signUp).not.toHaveBeenCalled()
+    expect(api.callsTo(SIGNUP)).toHaveLength(0)
   })
 
-  it('sends the sign-up and shows "Check your email" without putting the email in the address', async () => {
+  it('rejects passwords longer than 128 characters', async () => {
     const user = userEvent.setup()
-    const auth = createFakeAuth()
-    renderApp('/signup', { client: auth.client })
+    const api = mockApi()
+    renderApp('/signup')
+
+    await fillForm(user, { password: 'a'.repeat(129) })
+    await user.click(submitButton())
+
+    expect(await screen.findByText('Your password can be at most 128 characters')).toBeInTheDocument()
+    expect(api.callsTo(SIGNUP)).toHaveLength(0)
+  })
+
+  it('creates the account and lands on the dashboard, signed in', async () => {
+    const user = userEvent.setup()
+    const api = mockApi({ [SIGNUP]: () => userResponse(TEST_USER, 201) })
+    renderApp('/signup')
 
     await fillForm(user, { email: `  ${EMAIL}  ` })
     await user.click(submitButton())
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Check your email' })).toBeInTheDocument()
-    expect(screen.getByText(EMAIL)).toBeInTheDocument()
-    expect(screen.getByTestId('location')).toHaveTextContent(/^\/verify$/)
-    expect(screen.getByTestId('location').textContent).not.toContain('example.com')
-    expect(auth.fake.signUp).toHaveBeenCalledTimes(1)
-    expect(auth.fake.signUp).toHaveBeenCalledWith({
-      email: EMAIL,
-      password: 'correct-horse',
-      options: { emailRedirectTo: `${window.location.origin}/verify` },
-    })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/dashboard$/)
+    const calls = api.callsTo(SIGNUP)
+    expect(calls).toHaveLength(1)
+    expect(sentBody(calls[0])).toEqual({ email: EMAIL, password: 'correct-horse' })
+    // The confirmation copy never leaves the browser.
+    expect(JSON.stringify(sentBody(calls[0]))).not.toContain('confirm')
   })
 
-  it('shows the same message when the email may already have an account', async () => {
+  it('explains an existing account, links to sign in and keeps the email', async () => {
     const user = userEvent.setup()
-    const auth = createFakeAuth()
-    // Supabase's "already registered" answer: success, but a user with no identities.
-    auth.fake.signUp.mockResolvedValueOnce({
-      data: { user: { id: 'obfuscated', identities: [] }, session: null },
-      error: null,
-    })
-    renderApp('/signup', { client: auth.client })
+    mockApi({ [SIGNUP]: () => errorResponse(409, 'account_exists', ACCOUNT_EXISTS_MESSAGE) })
+    renderApp('/signup')
 
     await fillForm(user)
     await user.click(submitButton())
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Check your email' })).toBeInTheDocument()
-    expect(screen.getByText(EMAIL)).toBeInTheDocument()
-    expect(screen.queryByText(/already (has an account|registered|exists)/i)).not.toBeInTheDocument()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(ACCOUNT_EXISTS_MESSAGE)
+    expect(alert.querySelector('a')).toHaveAttribute('href', '/login')
+    expect(screen.getByLabelText('Email address')).toHaveValue(EMAIL)
   })
 
-  it('explains rate limits in plain English and keeps what was typed', async () => {
+  it('puts server field errors on the right fields and focuses the first one', async () => {
     const user = userEvent.setup()
-    const auth = createFakeAuth()
-    auth.fake.signUp.mockResolvedValueOnce({
-      data: { user: null, session: null },
-      error: { name: 'AuthApiError', code: 'over_email_send_rate_limit', status: 429, message: 'raw supabase text' },
+    mockApi({
+      [SIGNUP]: () =>
+        errorResponse(422, 'validation_failed', 'Check the form', {
+          field_errors: { password: 'Choose a less common password.' },
+        }),
     })
-    renderApp('/signup', { client: auth.client })
+    renderApp('/signup')
 
     await fillForm(user)
     await user.click(submitButton())
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(RATE_LIMIT_MESSAGE)
-    expect(screen.queryByText(/raw supabase text/)).not.toBeInTheDocument()
+    expect(await screen.findByText('Choose a less common password.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByLabelText('Password')).toHaveFocus()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [() => errorResponse(429, 'rate_limited', 'raw server text'), RATE_LIMIT_MESSAGE],
+    [() => errorResponse(503, 'service_unavailable', 'raw server text'), /isn't available right now/],
+    [() => Promise.reject(new TypeError('Failed to fetch')), NETWORK_MESSAGE],
+    [() => errorResponse(500, 'internal_error', 'raw server text'), 'Something went wrong. Please try again.'],
+  ])('shows a plain message for other problems and keeps what was typed (%#)', async (reply, message) => {
+    const user = userEvent.setup()
+    mockApi({ [SIGNUP]: reply })
+    renderApp('/signup')
+
+    await fillForm(user)
+    await user.click(submitButton())
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(screen.queryByText(/raw server text/)).not.toBeInTheDocument()
     expect(screen.getByLabelText('Email address')).toHaveValue(EMAIL)
     expect(screen.getByRole('heading', { level: 1, name: 'Create your account' })).toBeInTheDocument()
   })
 
-  it('shows a weak password message on the password field', async () => {
-    const user = userEvent.setup()
-    const auth = createFakeAuth()
-    auth.fake.signUp.mockResolvedValueOnce({
-      data: { user: null, session: null },
-      error: { name: 'AuthWeakPasswordError', code: 'weak_password', status: 422, message: 'Password is too common.' },
-    })
-    renderApp('/signup', { client: auth.client })
-
-    await fillForm(user)
-    await user.click(submitButton())
-
-    expect(await screen.findByText('Password is too common.')).toBeInTheDocument()
-    expect(screen.getByLabelText('Password')).toHaveAttribute('aria-invalid', 'true')
-    expect(screen.getByLabelText('Password')).toHaveFocus()
-  })
-
-  it('shows a generic message for unexpected errors', async () => {
-    const user = userEvent.setup()
-    const auth = createFakeAuth()
-    auth.fake.signUp.mockRejectedValueOnce(new Error('boom'))
-    renderApp('/signup', { client: auth.client })
-
-    await fillForm(user)
-    await user.click(submitButton())
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong. Please try again.')
-    expect(screen.queryByText('boom')).not.toBeInTheDocument()
-  })
-
   it('submits only once when the button is double-clicked', async () => {
     const user = userEvent.setup()
-    const auth = createFakeAuth()
-    let finish: (v: { data: unknown; error: unknown }) => void = () => undefined
-    auth.fake.signUp.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
-    renderApp('/signup', { client: auth.client })
+    let finish: (r: Response) => void = () => undefined
+    const pending = new Promise<Response>((resolve) => (finish = resolve))
+    const api = mockApi({ [SIGNUP]: () => pending })
+    renderApp('/signup')
 
     await fillForm(user)
     await user.dblClick(submitButton())
     await user.click(submitButton())
 
     expect(await screen.findByRole('button', { name: 'Creating your account…' })).toBeDisabled()
-    expect(auth.fake.signUp).toHaveBeenCalledTimes(1)
+    expect(api.callsTo(SIGNUP)).toHaveLength(1)
 
-    finish({ data: { user: { identities: [{}] }, session: null }, error: null })
-    expect(await screen.findByRole('heading', { level: 1, name: 'Check your email' })).toBeInTheDocument()
-    expect(auth.fake.signUp).toHaveBeenCalledTimes(1)
+    finish(userResponse(TEST_USER, 201))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument()
+    expect(api.callsTo(SIGNUP)).toHaveLength(1)
   })
 
-  it('disables the form when the app is not set up', () => {
-    renderApp('/signup', { client: null, config: { ok: false, problems: ['VITE_SUPABASE_URL is not set.'] } })
-    expect(screen.getByText(/sign-up is not available yet/i)).toBeInTheDocument()
-    expect(screen.getByLabelText('Email address')).toBeDisabled()
-    expect(screen.getByText(/already have an account/i).querySelector('a')).toHaveAttribute('href', '/login')
+  it('sends someone who is already signed in to the dashboard', async () => {
+    mockApi({ 'GET /api/auth/me': userResponse })
+    renderApp('/signup')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument()
   })
 })

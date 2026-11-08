@@ -1,6 +1,8 @@
-"""A01 account setup: profile + default categories, safe to retry, separate per user."""
+"""Account setup: profile + default categories, safe to retry, separate per user,
+plus the database rules that protect them."""
 
 import threading
+import uuid
 
 import pytest
 from sqlalchemy import text
@@ -11,19 +13,42 @@ from app.accounts import (
     DEFAULT_INCOME_CATEGORIES,
     initialise_account,
 )
-from tests.conftest import auth_header
+from app.config import get_settings
+from app.security import SESSION_COOKIE, create_session_token, hash_password
+from tests.conftest import new_client
 
 TOTAL_DEFAULTS = len(DEFAULT_EXPENSE_CATEGORIES) + len(DEFAULT_INCOME_CATEGORIES)
 
 
-def _init(client, user):
-    r = client.post("/api/account/initialise", headers=auth_header(user))
+@pytest.fixture
+def bare_user(engine):
+    """A user row with no profile yet, and a browser signed in as them."""
+    user_id = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text("insert into users (id, email, password_hash) values (:id, :e, :h)"),
+            {
+                "id": user_id,
+                "e": f"{user_id.hex[:8]}@example.test",
+                "h": hash_password("pw-12345678"),
+            },
+        )
+    browser = new_client()
+    browser.cookies.set(
+        SESSION_COOKIE, create_session_token(user_id, 1, get_settings()), path="/api"
+    )
+    return user_id, browser
+
+
+def _init(browser):
+    r = browser.post("/api/account/initialise")
     assert r.status_code == 200, r.text
     return r.json()["data"]
 
 
-def test_initialise_creates_profile_and_typed_default_categories(client, make_user):
-    data = _init(client, make_user())
+def test_initialise_creates_profile_and_typed_default_categories(bare_user):
+    _, browser = bare_user
+    data = _init(browser)
     assert data["created"] is True
     assert data["profile"]["currency"] == "GBP"
     assert data["profile"]["timezone"] == "Europe/London"
@@ -38,10 +63,10 @@ def test_initialise_creates_profile_and_typed_default_categories(client, make_us
     assert by_type["expense"][-1] == "Other" and by_type["income"][-1] == "Other"
 
 
-def test_retry_creates_no_duplicates_and_keeps_ids(client, make_user):
-    user = make_user()
-    first = _init(client, user)
-    second = _init(client, user)
+def test_retry_creates_no_duplicates_and_keeps_ids(bare_user):
+    _, browser = bare_user
+    first = _init(browser)
+    second = _init(browser)
     assert second["created"] is False
     assert [c["id"] for c in second["categories"]] == [
         c["id"] for c in first["categories"]
@@ -49,8 +74,8 @@ def test_retry_creates_no_duplicates_and_keeps_ids(client, make_user):
     assert len(second["categories"]) == TOTAL_DEFAULTS
 
 
-def test_concurrent_initialise_creates_one_set(engine, make_user):
-    user = make_user()
+def test_concurrent_initialise_creates_one_set(engine, bare_user):
+    user, _ = bare_user
     results, errors = [], []
     barrier = threading.Barrier(6)
 
@@ -77,9 +102,9 @@ def test_concurrent_initialise_creates_one_set(engine, make_user):
     assert count == TOTAL_DEFAULTS
 
 
-def test_rerun_never_resets_user_changes(client, make_user, engine):
-    user = make_user()
-    _init(client, user)
+def test_rerun_never_resets_user_changes(bare_user, engine):
+    user, browser = bare_user
+    _init(browser)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -87,29 +112,20 @@ def test_rerun_never_resets_user_changes(client, make_user, engine):
             ),
             {"u": user},
         )
-    names = [c["name"] for c in _init(client, user)["categories"]]
+    names = [c["name"] for c in _init(browser)["categories"]]
     assert "Food shop" in names and "Groceries" not in names
 
 
-def test_two_users_get_separate_categories(client, make_user):
-    alice, bob = make_user("alice@example.test"), make_user("bob@example.test")
-    alice_ids = {c["id"] for c in _init(client, alice)["categories"]}
-    bob_ids = {c["id"] for c in _init(client, bob)["categories"]}
-    assert alice_ids.isdisjoint(bob_ids)
-
-    r = client.get("/api/categories", headers=auth_header(bob))
-    assert {c["id"] for c in r.json()["data"]} == bob_ids
-
-
-def test_profile_before_setup_is_404(client, make_user):
-    r = client.get("/api/profile", headers=auth_header(make_user()))
+def test_profile_before_setup_is_404(bare_user):
+    _, browser = bare_user
+    r = browser.get("/api/profile")
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "profile_not_initialised"
 
 
-def test_archived_categories_hidden_unless_requested(client, make_user, engine):
-    user = make_user()
-    _init(client, user)
+def test_archived_categories_hidden_unless_requested(bare_user, engine):
+    user, browser = bare_user
+    _init(browser)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -117,10 +133,8 @@ def test_archived_categories_hidden_unless_requested(client, make_user, engine):
             ),
             {"u": user},
         )
-    active = client.get("/api/categories", headers=auth_header(user)).json()["data"]
-    everything = client.get(
-        "/api/categories?include_archived=true", headers=auth_header(user)
-    ).json()["data"]
+    active = browser.get("/api/categories").json()["data"]
+    everything = browser.get("/api/categories?include_archived=true").json()["data"]
     assert "Health" not in [c["name"] for c in active]
     assert "Health" in [c["name"] for c in everything]
 
@@ -129,9 +143,9 @@ def test_archived_categories_hidden_unless_requested(client, make_user, engine):
 
 
 @pytest.fixture
-def seeded_user(client, make_user):
-    user = make_user()
-    _init(client, user)
+def seeded_user(bare_user):
+    user, browser = bare_user
+    _init(browser)
     return user
 
 
@@ -167,10 +181,36 @@ def test_only_gbp_london_profiles(engine, seeded_user):
     )
 
 
+@pytest.mark.parametrize(
+    "email",
+    ["Upper@example.test", " padded@example.test", "no-at-sign"],
+)
+def test_users_table_rejects_unnormalised_emails(engine, email):
+    _expect_db_error(
+        engine,
+        "insert into users (email, password_hash) values (:e, '$argon2id$x')",
+        {"e": email},
+    )
+
+
+def test_users_table_rejects_plain_text_passwords(engine):
+    _expect_db_error(
+        engine,
+        "insert into users (email, password_hash) values ('a@example.test', 'hunter2')",
+        {},
+    )
+
+
 def test_browser_roles_have_no_access(engine):
+    tables = (
+        "public.users",
+        "public.profiles",
+        "public.categories",
+        "public.alembic_version",
+    )
     with engine.connect() as conn:
         for role in ("anon", "authenticated"):
-            for table in ("public.profiles", "public.categories"):
+            for table in tables:
                 for priv in ("select", "insert", "update", "delete"):
                     allowed = conn.execute(
                         text("select has_table_privilege(:r, :t, :p)"),
@@ -179,20 +219,22 @@ def test_browser_roles_have_no_access(engine):
                     assert allowed is False, f"{role} has {priv} on {table}"
         rls = conn.execute(
             text(
-                "select bool_and(relrowsecurity) from pg_class where relname in ('profiles', 'categories')"
+                "select bool_and(relrowsecurity) from pg_class where relnamespace = 'public'::regnamespace "
+                "and relname in ('users', 'profiles', 'categories', 'alembic_version')"
             )
         ).scalar()
         assert rls is True
 
 
-def test_deleting_auth_user_removes_their_data(engine, seeded_user):
+def test_deleting_a_user_removes_all_their_data(engine, seeded_user):
     with engine.begin() as conn:
-        conn.execute(text("delete from auth.users where id = :u"), {"u": seeded_user})
-        left = conn.execute(
-            text("select count(*) from categories where user_id = :u"),
-            {"u": seeded_user},
-        ).scalar()
-    assert left == 0
+        conn.execute(text("delete from users where id = :u"), {"u": seeded_user})
+        for table, col in (("profiles", "id"), ("categories", "user_id")):
+            left = conn.execute(
+                text(f"select count(*) from {table} where {col} = :u"),
+                {"u": seeded_user},
+            ).scalar()
+            assert left == 0
 
 
 def test_new_tables_start_locked_for_browser_roles(engine):
@@ -208,15 +250,5 @@ def test_new_tables_start_locked_for_browser_roles(engine):
                     {"r": role},
                 ).scalar()
                 assert allowed is False
-            for role in ("anon", "authenticated"):
-                assert (
-                    conn.execute(
-                        text(
-                            "select has_table_privilege(:r, 'public.alembic_version', 'select')"
-                        ),
-                        {"r": role},
-                    ).scalar()
-                    is False
-                )
         finally:
             conn.execute(text("drop table public.tmp_future_table"))

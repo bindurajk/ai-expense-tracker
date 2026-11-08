@@ -1,46 +1,38 @@
 import { z } from 'zod'
 
-// Plain-English messages for Supabase Auth problems. We never show raw error objects,
-// and no message ever says whether an email address already has an account.
+// Plain-English messages for sign-up and sign-in problems reported by the SpendWise API.
+// We never show raw error objects or server stack traces.
 
-export const RATE_LIMIT_MESSAGE = 'Too many emails have been sent. Please wait a few minutes and try again.'
+export const RATE_LIMIT_MESSAGE = 'Too many attempts. Please wait a few minutes and try again.'
 export const INVALID_EMAIL_MESSAGE = 'Enter a valid email address, like name@gmail.com'
-// Supabase accepted the format but could not email the address (for example a made-up
-// domain, or one its free email sender is not allowed to send to).
-export const UNDELIVERABLE_EMAIL_MESSAGE =
-  "We couldn't send an email to that address. Use a real address you can open, then try again."
 export const GENERIC_MESSAGE = 'Something went wrong. Please try again.'
 export const NETWORK_MESSAGE = "We couldn't connect. Check your internet connection and try again."
-const SIGNUP_DISABLED_MESSAGE = "New accounts can't be created right now. Please try again later."
-const WEAK_PASSWORD_MESSAGE = 'Choose a stronger password.'
+export const ACCOUNT_EXISTS_MESSAGE = 'An account with this email already exists. Try signing in.'
+// Never say whether it was the email or the password that was wrong.
+export const INVALID_CREDENTIALS_MESSAGE = 'Email or password is incorrect.'
+export const SERVICE_UNAVAILABLE_MESSAGE =
+  "SpendWise isn't available right now. Please try again in a few minutes."
 
-type AuthErrorLike = { code?: string; status?: number; message?: string; name?: string }
+type ApiErrorLike = { code?: string; status?: number; fieldErrors?: Record<string, string> }
 
-export type MappedAuthError = { field?: 'email' | 'password'; message: string }
+export type AuthErrorKind = 'rate_limited' | 'network_error' | 'account_exists' | 'invalid_credentials' | 'service_unavailable' | 'generic'
 
-export function mapAuthError(error: AuthErrorLike | null | undefined): MappedAuthError {
+export type MappedAuthError = { kind: AuthErrorKind; message: string }
+
+// Turns an API problem into a safe, friendly form-level message.
+export function mapAuthError(error: ApiErrorLike | null | undefined): MappedAuthError {
   const code = error?.code
   const status = error?.status
-  if (code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit' || status === 429) {
-    return { message: RATE_LIMIT_MESSAGE }
+  if (code === 'rate_limited' || status === 429) return { kind: 'rate_limited', message: RATE_LIMIT_MESSAGE }
+  if (code === 'network_error' || status === 0) return { kind: 'network_error', message: NETWORK_MESSAGE }
+  if (code === 'account_exists' || status === 409) return { kind: 'account_exists', message: ACCOUNT_EXISTS_MESSAGE }
+  if (code === 'invalid_credentials' || status === 401) {
+    return { kind: 'invalid_credentials', message: INVALID_CREDENTIALS_MESSAGE }
   }
-  if (code === 'weak_password') {
-    const text = typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : ''
-    return { field: 'password', message: text || WEAK_PASSWORD_MESSAGE }
+  if (code === 'service_unavailable' || status === 503) {
+    return { kind: 'service_unavailable', message: SERVICE_UNAVAILABLE_MESSAGE }
   }
-  if (code === 'email_address_invalid' || code === 'email_address_not_authorized') {
-    return { field: 'email', message: UNDELIVERABLE_EMAIL_MESSAGE }
-  }
-  if (code === 'validation_failed') {
-    return { field: 'email', message: INVALID_EMAIL_MESSAGE }
-  }
-  if (code === 'signup_disabled') {
-    return { message: SIGNUP_DISABLED_MESSAGE }
-  }
-  if (error?.name === 'AuthRetryableFetchError' || status === 0) {
-    return { message: NETWORK_MESSAGE }
-  }
-  return { message: GENERIC_MESSAGE }
+  return { kind: 'generic', message: GENERIC_MESSAGE }
 }
 
 // Email rules shared by every form: trimmed, a real-looking address, at most 254 characters.

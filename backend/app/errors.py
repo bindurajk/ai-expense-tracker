@@ -52,7 +52,7 @@ def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", "unknown")
 
 
-def _error_response(request: Request, err: AppError) -> JSONResponse:
+def error_response(request: Request, err: AppError) -> JSONResponse:
     body: dict = {
         "code": err.code,
         "message": err.message,
@@ -85,17 +85,18 @@ def install_error_handling(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError):
-        return _error_response(request, exc)
+        return error_response(request, exc)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation(request: Request, exc: RequestValidationError):
-        fields = {
-            ".".join(str(p) for p in e["loc"] if p not in ("body", "query", "path")): e[
-                "msg"
-            ]
-            for e in exc.errors()
-        }
-        return _error_response(
+        fields = {}
+        for e in exc.errors():
+            name = ".".join(
+                str(p) for p in e["loc"] if p not in ("body", "query", "path")
+            )
+            # Our own validators raise ValueError; pydantic prefixes those messages.
+            fields[name or "request"] = str(e["msg"]).removeprefix("Value error, ")
+        return error_response(
             request,
             AppError(422, "validation_failed", "Some fields need attention.", fields),
         )
@@ -103,7 +104,7 @@ def install_error_handling(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def handle_http(request: Request, exc: StarletteHTTPException):
         code, message = _STATUS_CODES.get(exc.status_code, ("error", "Request failed."))
-        return _error_response(request, AppError(exc.status_code, code, message))
+        return error_response(request, AppError(exc.status_code, code, message))
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception):
@@ -111,7 +112,7 @@ def install_error_handling(app: FastAPI) -> None:
         logger.error(
             "unhandled error %s request_id=%s", type(exc).__name__, _request_id(request)
         )
-        return _error_response(
+        return error_response(
             request,
             AppError(500, "internal_error", "Something went wrong. Please try again."),
         )

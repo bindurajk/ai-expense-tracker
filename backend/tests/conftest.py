@@ -1,24 +1,19 @@
 """Test setup: a throwaway local PostgreSQL (via pgserver), migrated to the latest schema.
 
-Supabase's auth.users table is imitated with just the columns the backend reads.
-All users, tokens and secrets here are fake test values.
+The database imitates Supabase where the migrations need it (an auth schema and the
+browser roles). All users, passwords and secrets here are fake test values.
 """
 
 import os
 import tempfile
-import time
-import uuid
 from pathlib import Path
 
 # Fake settings, applied before the app is imported.
-TEST_SUPABASE_URL = "https://test-project.supabase.co"
-TEST_JWT_SECRET = "test-only-secret-not-used-anywhere-0123456789"
-os.environ["SUPABASE_URL"] = TEST_SUPABASE_URL
-os.environ["SUPABASE_JWT_SECRET"] = TEST_JWT_SECRET
+TEST_SECRET = "test-only-secret-key-not-used-anywhere-0123456789"
+os.environ["APP_SECRET_KEY"] = TEST_SECRET
 os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = ""
 
-import jwt
 import psycopg
 import pytest
 from alembic import command
@@ -28,18 +23,14 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db import get_engine
+from app.security import failed_login_ip_limiter, failed_login_limiter, signup_limiter
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+PASSWORD = "correct-horse-battery"
 
 FAKE_SUPABASE_SQL = """
 create schema if not exists auth;
-create table auth.users (
-  id uuid primary key,
-  email text,
-  email_confirmed_at timestamptz,
-  banned_until timestamptz,
-  deleted_at timestamptz
-);
+create table auth.users (id uuid primary key);
 do $$ begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then
@@ -81,57 +72,36 @@ def engine(database_url):
     eng = get_engine()
     yield eng
     with eng.begin() as conn:
-        conn.execute(text("truncate auth.users cascade"))
+        conn.execute(text("truncate public.users cascade"))
+
+
+@pytest.fixture(autouse=True)
+def _reset_limiters():
+    for limiter in (failed_login_limiter, failed_login_ip_limiter, signup_limiter):
+        limiter.clear()
+    yield
+
+
+def new_client() -> TestClient:
+    """A separate "browser": its own cookie jar, and the header our CSRF guard requires."""
+    from app.main import app
+
+    return TestClient(app, headers={"X-Requested-With": "SpendWise"})
 
 
 @pytest.fixture
 def client(engine):
-    from app.main import app
-
-    return TestClient(app)
+    return new_client()
 
 
 @pytest.fixture
-def make_user(engine):
-    """Create a fake Supabase auth user. Returns its UUID."""
+def signed_up(engine):
+    """Sign up a user in a fresh browser. Returns (client, user_dict)."""
 
-    def _make(email: str | None = None, confirmed: bool = True, **extra) -> uuid.UUID:
-        user_id = uuid.uuid4()
-        with engine.begin() as conn:
-            conn.execute(
-                text(
-                    "insert into auth.users (id, email, email_confirmed_at, banned_until, deleted_at) "
-                    "values (:id, :email, case when :confirmed then now() end, :banned, :deleted)"
-                ),
-                {
-                    "id": user_id,
-                    "email": email or f"{user_id.hex[:8]}@example.test",
-                    "confirmed": confirmed,
-                    "banned": extra.get("banned_until"),
-                    "deleted": extra.get("deleted_at"),
-                },
-            )
-        return user_id
+    def _signup(email: str, password: str = PASSWORD):
+        c = new_client()
+        r = c.post("/api/auth/signup", json={"email": email, "password": password})
+        assert r.status_code == 201, r.text
+        return c, r.json()["data"]["user"]
 
-    return _make
-
-
-def make_token(
-    user_id: uuid.UUID | str, *, secret: str = TEST_JWT_SECRET, **overrides
-) -> str:
-    now = int(time.time())
-    claims = {
-        "sub": str(user_id),
-        "aud": "authenticated",
-        "role": "authenticated",
-        "iss": f"{TEST_SUPABASE_URL}/auth/v1",
-        "iat": now,
-        "exp": now + 3600,
-    }
-    claims.update(overrides)
-    claims = {k: v for k, v in claims.items() if v is not None}
-    return jwt.encode(claims, secret, algorithm="HS256")
-
-
-def auth_header(user_id, **overrides) -> dict[str, str]:
-    return {"Authorization": f"Bearer {make_token(user_id, **overrides)}"}
+    return _signup

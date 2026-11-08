@@ -1,20 +1,23 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import { useAuth } from '../auth/AuthContext'
-import { emailSchema, GENERIC_MESSAGE, mapAuthError } from '../auth/authErrors'
+import { emailSchema, mapAuthError, type MappedAuthError } from '../auth/authErrors'
 import { Field } from '../components/Field'
+import { ApiError } from '../lib/api'
 import { usePageTitle } from '../usePageTitle'
+
+const passwordSchema = z
+  .string()
+  .min(8, { error: 'Your password must be at least 8 characters' })
+  .max(128, { error: 'Your password can be at most 128 characters' })
 
 const signupSchema = z
   .object({
     email: emailSchema,
-    password: z
-      .string()
-      .min(8, { error: 'Your password must be at least 8 characters' })
-      .max(72, { error: 'Your password can be at most 72 characters' }),
+    password: passwordSchema,
     confirmPassword: z.string().min(1, { error: 'Type your password again' }),
   })
   .refine((v) => v.password === v.confirmPassword, {
@@ -25,14 +28,11 @@ const signupSchema = z
 type SignupInput = z.input<typeof signupSchema>
 type SignupValues = z.output<typeof signupSchema>
 
-// What /verify receives. The email travels in router state only, never in the web address.
-export type VerifyRouteState = { email?: string; justSignedUp?: boolean }
-
 export function Signup() {
   usePageTitle('Sign up')
-  const { client } = useAuth()
+  const { status, signUp } = useAuth()
   const navigate = useNavigate()
-  const [formError, setFormError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<MappedAuthError | null>(null)
   const inFlight = useRef(false)
 
   const {
@@ -45,52 +45,46 @@ export function Signup() {
     defaultValues: { email: '', password: '', confirmPassword: '' },
   })
 
+  if (status === 'signed-in') return <Navigate to="/dashboard" replace />
+
   async function onSubmit(values: SignupValues) {
-    if (!client || inFlight.current) return
+    if (inFlight.current) return
     inFlight.current = true
     setFormError(null)
     try {
-      const { error } = await client.signUp({
-        email: values.email,
-        password: values.password,
-        options: { emailRedirectTo: `${window.location.origin}/verify` },
-      })
-      if (!error) {
-        // Supabase gives the same answer whether or not the email already has an account,
-        // so everyone sees the same "Check your email" page.
-        const state: VerifyRouteState = { email: values.email, justSignedUp: true }
-        navigate('/verify', { state })
-        return
-      }
-      const mapped = mapAuthError(error)
-      if (mapped.field) {
-        setError(mapped.field, { type: 'server', message: mapped.message }, { shouldFocus: true })
+      await signUp(values.email, values.password)
+      navigate('/dashboard', { replace: true })
+    } catch (error) {
+      const apiError = error instanceof ApiError ? error : null
+      const fields = apiError?.status === 422 ? apiError.fieldErrors : undefined
+      const fieldNames = (['email', 'password'] as const).filter((name) => fields?.[name])
+      if (fields && fieldNames.length > 0) {
+        fieldNames.forEach((name, i) =>
+          setError(name, { type: 'server', message: fields[name] }, { shouldFocus: i === 0 }),
+        )
       } else {
-        setFormError(mapped.message)
+        setFormError(mapAuthError(apiError))
       }
-    } catch {
-      setFormError(GENERIC_MESSAGE)
     } finally {
       inFlight.current = false
     }
   }
 
-  const disabled = !client
-
   return (
     <section className="page narrow">
       <h1>Create your account</h1>
-      {disabled && (
-        <p className="notice notice-warning" role="status">
-          Sign-up is not available yet because the app is not fully set up.
-        </p>
-      )}
       <form className="form" noValidate onSubmit={(event) => void handleSubmit(onSubmit)(event)}>
-        <fieldset disabled={disabled}>
+        <fieldset>
           <legend className="visually-hidden">Your sign-up details</legend>
           {formError && (
             <div className="notice notice-error" role="alert">
-              {formError}
+              {formError.message}
+              {formError.kind === 'account_exists' && (
+                <>
+                  {' '}
+                  <Link to="/login">Go to sign in</Link>
+                </>
+              )}
             </div>
           )}
           <Field

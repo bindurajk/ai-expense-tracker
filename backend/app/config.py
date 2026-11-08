@@ -15,10 +15,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # All optional for now so the app starts without a database.
+    # Empty values are allowed so the app can start; endpoints that need them answer 503.
     DATABASE_URL: str = ""
-    SUPABASE_URL: str = ""
-    SUPABASE_JWT_SECRET: str = ""
+    # Signs session cookies. Long random text, kept secret, never committed.
+    APP_SECRET_KEY: str = ""
+    SESSION_DAYS: int = 7
+    # True in production (HTTPS). False for http://localhost during development.
+    COOKIE_SECURE: bool = False
     APP_ENV: str = "development"
 
     @property

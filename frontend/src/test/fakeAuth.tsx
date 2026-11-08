@@ -4,85 +4,63 @@ import { StrictMode } from 'react'
 import { MemoryRouter, type InitialEntry } from 'react-router-dom'
 import { vi } from 'vitest'
 import { AuthProvider } from '../auth/AuthContext'
-import type { AppConfig } from '../config'
-import type { AuthClient } from '../lib/supabase'
 import { AppRoutes } from '../routes'
 import { LocationProbe } from './LocationProbe'
 
-// Test-only helpers: a fake Supabase Auth client (no network) and a render helper.
+// Test-only helpers: a fake SpendWise API (global fetch replaced, no network) and a render helper.
 
-export const okConfig: AppConfig = { ok: true, supabaseUrl: 'https://example.test', supabaseAnonKey: 'test-key' }
+export const TEST_USER = { id: 'user-1', email: 'sam@example.com' }
 
-type FakeUser = { email: string; verified: boolean }
-
-export function fakeSession({ email, verified }: FakeUser) {
-  return {
-    access_token: 'fake-access-token',
-    refresh_token: 'fake-refresh-token',
-    token_type: 'bearer',
-    expires_in: 3600,
-    user: {
-      id: 'user-1',
-      email,
-      email_confirmed_at: verified ? '2026-11-02T10:00:00Z' : null,
-    },
-  }
+export function jsonResponse(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
 }
 
-type Options = {
-  /** The session getSession() resolves to. Use 'pending' to keep it loading forever. */
-  session?: ReturnType<typeof fakeSession> | null | 'pending'
+export function errorResponse(status: number, code: string, message = 'Server message', extra: object = {}) {
+  return jsonResponse(status, { error: { code, message, request_id: 'req-1', ...extra } })
 }
 
-export function createFakeAuth({ session = null }: Options = {}) {
-  let listener: ((event: string, s: unknown) => void) | null = null
-  let current = session === 'pending' ? null : session
-  let pending = session === 'pending'
-  const waiting: ((value: unknown) => void)[] = []
+export const userResponse = (user = TEST_USER, status = 200) => jsonResponse(status, { data: { user } })
+export const signedOut = () => errorResponse(401, 'invalid_session', 'Please sign in.')
 
-  const fake = {
-    // 'pending' stays unresolved until emit() reports a session, like a link exchange in progress.
-    getSession: vi.fn(() =>
-      pending
-        ? new Promise((resolve) => waiting.push(resolve))
-        : Promise.resolve({ data: { session: current }, error: null }),
-    ),
-    onAuthStateChange: vi.fn((cb: (event: string, s: unknown) => void) => {
-      listener = cb
-      return { data: { subscription: { id: 'sub', callback: cb, unsubscribe: vi.fn() } } }
-    }),
-    signOut: vi.fn(() => Promise.resolve({ error: null })),
-    signUp: vi.fn(() =>
-      Promise.resolve<{ data: unknown; error: unknown }>({
-        data: { user: { id: 'new-user', identities: [{ id: 'identity' }] }, session: null },
-        error: null,
-      }),
-    ),
-    resend: vi.fn(() => Promise.resolve<{ data: unknown; error: unknown }>({ data: {}, error: null })),
-  }
+type Reply = Response | Promise<Response> | (() => Response | Promise<Response>)
 
-  return {
-    fake,
-    client: fake as unknown as AuthClient,
-    /** Simulates Supabase reporting a new session (for example after the email link is exchanged). */
-    emit(event: string, s: ReturnType<typeof fakeSession> | null) {
-      current = s
-      pending = false
-      listener?.(event, s)
-      waiting.splice(0).forEach((resolve) => resolve({ data: { session: s }, error: null }))
-    },
-  }
+/** Routes like 'GET /api/auth/me' → a reply. Unknown routes answer 404. */
+export type FakeRoutes = Record<string, Reply>
+
+export function mockApi(routes: FakeRoutes = {}) {
+  const table: FakeRoutes = { 'GET /api/auth/me': signedOut, 'POST /api/auth/logout': () => new Response(null, { status: 204 }), ...routes }
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url
+    const key = `${(init?.method ?? 'GET').toUpperCase()} ${url}`
+    const reply = table[key]
+    if (reply === undefined) return Promise.resolve(errorResponse(404, 'not_found', 'Not found'))
+    const result = typeof reply === 'function' ? reply() : reply
+    // A Response body can only be read once, so always hand out a copy.
+    return Promise.resolve(result).then((r) => r.clone())
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  /** Every call made to a route, as [path, init]. */
+  const callsTo = (key: string) =>
+    fetchMock.mock.calls.filter(([input, init]) => `${(init?.method ?? 'GET').toUpperCase()} ${String(input)}` === key)
+
+  return { fetchMock, callsTo }
 }
 
+/** Parses the JSON body a request was sent with. */
+export function sentBody(call: unknown[]) {
+  const init = call[1] as RequestInit | undefined
+  return JSON.parse(String(init?.body ?? 'null')) as unknown
+}
 
-export function renderApp(
-  entry: InitialEntry,
-  { client, config = okConfig, strict = false }: { client: AuthClient | null; config?: AppConfig; strict?: boolean },
-) {
+export function renderApp(entry: InitialEntry, { strict = false, demoAllowed = false } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const tree = (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider config={config} demoAllowed={false} client={client}>
+      <AuthProvider demoAllowed={demoAllowed}>
         <MemoryRouter initialEntries={[entry]}>
           <AppRoutes />
           <LocationProbe />
@@ -91,11 +69,4 @@ export function renderApp(
     </QueryClientProvider>
   )
   return { queryClient, ...render(strict ? <StrictMode>{tree}</StrictMode> : tree) }
-}
-
-export function jsonResponse(status: number, body: unknown) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
 }
